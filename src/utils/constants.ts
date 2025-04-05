@@ -1,4 +1,4 @@
-const USERTYPES: string[] = ['Admin', 'Customer', 'Business', 'Bank', 'Rider'];
+const USERTYPES: string[] = ['Admin', 'Customer', 'Merchant', 'Bank', 'Rider'];
 
 const SERVER_URLS = {
   admin: process.env.ADMIN ?? '',
