@@ -18,4 +18,10 @@ export class AppController {
   ping(): string {
     return 'Health ping';
   }
+
+  @Get('keep_alive')
+  @Public()
+  keepAlive(): string {
+    return 'Health ping';
+  }
 }
