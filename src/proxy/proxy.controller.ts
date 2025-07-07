@@ -38,7 +38,7 @@ export class ProxyController {
     const type = this.proxyService.detectRequestType(req);
     const { targetUrl } = this.proxyService.getTargetUrl(req);
 
-    if (type === 'json') {
+    if (type === 'json' || type === 'unknown') {
       try {
         if (!req.body || !req.body.data || !req.body.iv || !req.body.tag) {
           // Not encrypted, forward as-is, but encrypt the response
@@ -49,13 +49,13 @@ export class ProxyController {
           delete safeHeaders['connection'];
           delete safeHeaders['transfer-encoding'];
 
-          // console.log('Proxy Outgoing Request (unencrypted):', {
-          //   method: req.method,
-          //   url: targetUrl,
-          //   headers: safeHeaders,
-          //   body: req.body,
-          //   query: req.query,
-          // });
+          console.log('Proxy Outgoing Request (unencrypted):', {
+            method: req.method,
+            url: targetUrl,
+            headers: safeHeaders,
+            body: req.body,
+            query: req.query,
+          });
 
           const axiosConfig = {
             method: req.method as any,
@@ -67,11 +67,11 @@ export class ProxyController {
             validateStatus: () => true,
           };
           const response = await axios(axiosConfig);
-          // console.log('Proxy Response (unencrypted):', {
-          //   status: response.status,
-          //   headers: response.headers,
-          //   data: response.data,
-          // });
+          console.log('Proxy Response (unencrypted):', {
+            status: response.status,
+            headers: response.headers,
+            data: response.data,
+          });
           // Encrypt the response before sending
           const encryptedResponse = encrypt(JSON.stringify(response.data));
           res.status(response.status).json(encryptedResponse);
@@ -108,11 +108,11 @@ export class ProxyController {
           validateStatus: () => true,
         };
         const response = await axios(axiosConfig);
-        // console.log('Proxy Response:', {
-        //   status: response.status,
-        //   headers: response.headers,
-        //   data: response.data,
-        // });
+        console.log('Proxy Response:', {
+          status: response.status,
+          headers: response.headers,
+          data: response.data,
+        });
         // Encrypt response
         const encryptedResponse = encrypt(JSON.stringify(response.data));
         res.status(response.status).json(encryptedResponse);
@@ -247,10 +247,18 @@ export class ProxyController {
       return;
     }
 
-    // Not implemented for other requests
-    res.status(HttpStatus.NOT_IMPLEMENTED).json({
-      message:
-        'Only JSON and multipart/form-data requests are currently supported by the server.',
-    });
+    // console.log('content type: ' + type);
+    // // Not implemented for other requests
+    // console.log('Not implemented request headers:', {
+    //   method: req.method,
+    //   url: targetUrl,
+    //   headers: req.headers,
+    //   body: req.body,
+    //   query: req.query,
+    // });
+    // res.status(HttpStatus.NOT_IMPLEMENTED).json({
+    //   message:
+    //     'Only JSON and multipart/form-data requests are currently supported by the server.',
+    // });
   }
 }

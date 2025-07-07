@@ -12,6 +12,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
   app.enableCors({
     origin: '*',
+    // allowedHeaders: ['Content-Type', 'Authorization', 'x-client-type'],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true, // If you need to allow cookies or authorization headers
   });
