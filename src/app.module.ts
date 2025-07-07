@@ -12,6 +12,8 @@ import { ProxyService } from './proxy/proxy.service';
 import { SanitizeMiddleware } from './middlewares/sanitize.middleware';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ValidateRequestMiddleware } from './middlewares/validate-request.middleware';
+import { VerificationGateway } from './verification/verification.gateway';
+import { VerificationService } from './verification/verification.service';
 
 @Module({
   imports: [
@@ -30,6 +32,8 @@ import { ValidateRequestMiddleware } from './middlewares/validate-request.middle
     // },
     // KeepAliveService,
     ProxyService,
+    VerificationGateway,
+    VerificationService,
   ],
 })
 export class AppModule {
