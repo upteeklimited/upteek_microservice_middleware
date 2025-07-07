@@ -1,28 +1,198 @@
-import { Controller, Req, Res, All, UseGuards } from '@nestjs/common';
+import { Controller, All, Req, Res, HttpStatus } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { ProxyService } from './proxy.service';
+import axios from 'axios';
+import * as multer from 'multer';
+import * as FormData from 'form-data';
+import * as fs from 'fs';
+import {
+  UPLOAD_SIZE_LIMIT,
+  PROXY_TIMEOUT_MS,
+  PROXY_MAX_BODY_SIZE,
+} from '../utils/constants';
+import * as path from 'path';
+
+// Ensure upload directory exists
+const uploadDir = './upload';
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadDir),
+    filename: (req, file, cb) => cb(null, file.originalname),
+  }),
+  limits: { fileSize: UPLOAD_SIZE_LIMIT },
+});
+
+// NOTE: Avoid using global body parsers for multipart routes. Only multer should handle multipart bodies.
 
 @Controller()
 export class ProxyController {
   constructor(private readonly proxyService: ProxyService) {}
 
-  @All('*') // Handle all HTTP methods
-  async handleRequest(@Req() req: Request, @Res() res: Response) {
-    try {
-      const result = await this.proxyService.forwardRequest(req);
+  @All('*')
+  async handleAll(@Req() req: Request, @Res() res: Response) {
+    const type = this.proxyService.detectRequestType(req);
+    const { targetUrl } = this.proxyService.getTargetUrl(req);
 
-      // Set the response status and headers
-      res.status(result.status);
-      Object.entries(result.headers).forEach(([key, value]) => {
-        res.setHeader(key, value as string);
-      });
+    if (type === 'json') {
+      try {
+        const safeHeaders = { ...req.headers };
+        delete safeHeaders['host'];
+        delete safeHeaders['content-length'];
+        delete safeHeaders['accept-encoding'];
+        delete safeHeaders['connection'];
+        delete safeHeaders['transfer-encoding'];
 
-      // Send the response data
-      res.send(result.data);
-    } catch (error) {
-      res
-        .status(error.status || 500)
-        .send(error.response || 'Internal Server Error');
+        console.log('Proxy Outgoing Request:', {
+          method: req.method,
+          url: targetUrl,
+          headers: safeHeaders,
+          body: req.body,
+          query: req.query,
+        });
+
+        const axiosConfig = {
+          method: req.method as any,
+          url: targetUrl,
+          headers: safeHeaders,
+          data: req.body,
+          params: req.query,
+          timeout: PROXY_TIMEOUT_MS,
+          validateStatus: () => true,
+        };
+        const response = await axios(axiosConfig);
+        console.log('Proxy Response:', {
+          status: response.status,
+          headers: response.headers,
+          data: response.data,
+        });
+        res.status(response.status).set(response.headers).send(response.data);
+      } catch (error) {
+        if (error.response) {
+          console.log('Proxy Error Response:', {
+            status: error.response.status,
+            headers: error.response.headers,
+            data: error.response.data,
+          });
+          res.status(error.response.status).send(error.response.data);
+        } else {
+          console.error('Proxy Error:', error);
+          res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+            message: 'Proxy error',
+            error: error.message,
+          });
+        }
+      }
+      return;
     }
+
+    if (type === 'form-data') {
+      upload.any()(req, res, async (err) => {
+        if (err) {
+          console.error('Multer error:', err);
+          return res
+            .status(HttpStatus.BAD_REQUEST)
+            .json({ message: 'Form-data parsing error', error: err.message });
+        }
+        // Helper to clean up uploaded files
+        const cleanupFiles = () => {
+          if (req.files) {
+            (req.files as Express.Multer.File[]).forEach((file) => {
+              const filePath = path.resolve(file.path);
+              fs.unlink(filePath, (err) => {
+                if (err) {
+                  console.error('Error deleting uploaded file:', filePath, err);
+                }
+              });
+            });
+          }
+        };
+        try {
+          const safeHeaders = { ...req.headers };
+          delete safeHeaders['host'];
+          delete safeHeaders['content-length'];
+          delete safeHeaders['accept-encoding'];
+          delete safeHeaders['connection'];
+          delete safeHeaders['transfer-encoding'];
+          delete safeHeaders['content-type']; // Ensure we use form-data's header
+
+          // Build a new FormData instance
+          const form = new FormData();
+          // Append fields
+          if (req.body) {
+            Object.entries(req.body).forEach(([key, value]) => {
+              form.append(key, value as any);
+            });
+          }
+          // Append files
+          if (req.files) {
+            (req.files as Express.Multer.File[]).forEach((file) => {
+              form.append(file.fieldname, fs.createReadStream(file.path), {
+                filename: file.originalname,
+                contentType: file.mimetype,
+              });
+            });
+          }
+
+          // Set the correct content-type header for form-data
+          Object.assign(safeHeaders, form.getHeaders());
+
+          console.log('Proxy Outgoing Multipart Request:', {
+            method: req.method,
+            url: targetUrl,
+            headers: safeHeaders,
+            fields: req.body,
+            files: req.files,
+            query: req.query,
+          });
+
+          const axiosConfig = {
+            method: req.method as any,
+            url: targetUrl,
+            headers: safeHeaders,
+            data: form,
+            params: req.query,
+            maxContentLength: PROXY_MAX_BODY_SIZE,
+            maxBodyLength: PROXY_MAX_BODY_SIZE,
+            timeout: PROXY_TIMEOUT_MS,
+            validateStatus: () => true,
+          };
+          const response = await axios(axiosConfig);
+          console.log('Proxy Multipart Response:', {
+            status: response.status,
+            headers: response.headers,
+            data: response.data,
+          });
+          res.status(response.status).set(response.headers).send(response.data);
+          cleanupFiles();
+        } catch (error) {
+          if (error.response) {
+            console.log('Proxy Multipart Error Response:', {
+              status: error.response.status,
+              headers: error.response.headers,
+              data: error.response.data,
+            });
+            res.status(error.response.status).send(error.response.data);
+          } else {
+            console.error('Proxy Multipart Error:', error);
+            res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+              message: 'Proxy error',
+              error: error.message,
+            });
+          }
+          cleanupFiles();
+        }
+      });
+      return;
+    }
+
+    // Not implemented for other requests
+    res.status(HttpStatus.NOT_IMPLEMENTED).json({
+      message:
+        'Only JSON and multipart/form-data requests are currently supported by the proxy.',
+    });
   }
 }
