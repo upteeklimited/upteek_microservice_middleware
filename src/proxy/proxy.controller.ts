@@ -11,6 +11,7 @@ import {
   PROXY_MAX_BODY_SIZE,
 } from '../utils/constants';
 import * as path from 'path';
+import { encrypt, decrypt } from '../utils/crypto';
 
 // Ensure upload directory exists
 const uploadDir = './upload';
@@ -39,6 +40,49 @@ export class ProxyController {
 
     if (type === 'json') {
       try {
+        if (!req.body || !req.body.data || !req.body.iv || !req.body.tag) {
+          // Not encrypted, forward as-is, but encrypt the response
+          const safeHeaders = { ...req.headers };
+          delete safeHeaders['host'];
+          delete safeHeaders['content-length'];
+          delete safeHeaders['accept-encoding'];
+          delete safeHeaders['connection'];
+          delete safeHeaders['transfer-encoding'];
+
+          console.log('Proxy Outgoing Request (unencrypted):', {
+            method: req.method,
+            url: targetUrl,
+            headers: safeHeaders,
+            body: req.body,
+            query: req.query,
+          });
+
+          const axiosConfig = {
+            method: req.method as any,
+            url: targetUrl,
+            headers: safeHeaders,
+            data: req.body,
+            params: req.query,
+            timeout: PROXY_TIMEOUT_MS,
+            validateStatus: () => true,
+          };
+          const response = await axios(axiosConfig);
+          console.log('Proxy Response (unencrypted):', {
+            status: response.status,
+            headers: response.headers,
+            data: response.data,
+          });
+          // Encrypt the response before sending
+          const encryptedResponse = encrypt(JSON.stringify(response.data));
+          res.status(response.status).json(encryptedResponse);
+          return;
+        }
+
+        // Encrypted request
+        const { data, iv, tag } = req.body;
+        const decrypted = decrypt({ data, iv, tag });
+        const decryptedBody = JSON.parse(decrypted);
+
         const safeHeaders = { ...req.headers };
         delete safeHeaders['host'];
         delete safeHeaders['content-length'];
@@ -50,7 +94,7 @@ export class ProxyController {
           method: req.method,
           url: targetUrl,
           headers: safeHeaders,
-          body: req.body,
+          body: decryptedBody,
           query: req.query,
         });
 
@@ -58,7 +102,7 @@ export class ProxyController {
           method: req.method as any,
           url: targetUrl,
           headers: safeHeaders,
-          data: req.body,
+          data: decryptedBody,
           params: req.query,
           timeout: PROXY_TIMEOUT_MS,
           validateStatus: () => true,
@@ -69,7 +113,9 @@ export class ProxyController {
           headers: response.headers,
           data: response.data,
         });
-        res.status(response.status).set(response.headers).send(response.data);
+        // Encrypt response
+        const encryptedResponse = encrypt(JSON.stringify(response.data));
+        res.status(response.status).json(encryptedResponse);
       } catch (error) {
         if (error.response) {
           console.log('Proxy Error Response:', {
@@ -111,6 +157,16 @@ export class ProxyController {
           }
         };
         try {
+          // Decrypt all string fields in req.body
+          Object.keys(req.body).forEach((key) => {
+            try {
+              const { data, iv, tag } = JSON.parse(req.body[key]);
+              req.body[key] = decrypt({ data, iv, tag });
+            } catch {
+              // If not encrypted, leave as is
+            }
+          });
+
           const safeHeaders = { ...req.headers };
           delete safeHeaders['host'];
           delete safeHeaders['content-length'];
@@ -166,7 +222,9 @@ export class ProxyController {
             headers: response.headers,
             data: response.data,
           });
-          res.status(response.status).set(response.headers).send(response.data);
+          // Encrypt response
+          const encryptedResponse = encrypt(JSON.stringify(response.data));
+          res.status(response.status).json(encryptedResponse);
           cleanupFiles();
         } catch (error) {
           if (error.response) {
