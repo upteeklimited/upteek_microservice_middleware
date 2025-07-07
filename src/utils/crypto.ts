@@ -1,20 +1,25 @@
+// src/utils/crypto.ts
 import * as crypto from 'crypto';
 
 const ALGO = 'aes-256-gcm';
-const secret = process.env.SHARED_SECRET || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-if (!secret) {
-  throw new Error('SHARED_SECRET is not set in environment variables!');
+
+function getKey(): Buffer {
+  const secret = process.env.SHARED_SECRET;
+  if (!secret) {
+    throw new Error('SHARED_SECRET is not set in environment variables!');
+  }
+  if (secret.length !== 64) {
+    throw new Error('SHARED_SECRET must be 64 hex characters (32 bytes)');
+  }
+  return Buffer.from(secret, 'hex');
 }
-if (secret.length !== 64) {
-  throw new Error('SHARED_SECRET must be 64 hex characters (32 bytes)');
-}
-const KEY = Buffer.from(secret, 'hex'); // 32 bytes (64 hex chars)
 
 export function encrypt(plain: string): {
   data: string;
   iv: string;
   tag: string;
 } {
+  const KEY = getKey();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv(ALGO, KEY, iv);
   let encrypted = cipher.update(plain, 'utf8', 'base64');
@@ -36,6 +41,7 @@ export function decrypt({
   iv: string;
   tag: string;
 }): string {
+  const KEY = getKey();
   const decipher = crypto.createDecipheriv(
     ALGO,
     KEY,
