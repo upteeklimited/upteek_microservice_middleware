@@ -49,13 +49,13 @@ export class ProxyController {
           delete safeHeaders['connection'];
           delete safeHeaders['transfer-encoding'];
 
-          console.log('Proxy Outgoing Request (unencrypted):', {
-            method: req.method,
-            url: targetUrl,
-            headers: safeHeaders,
-            body: req.body,
-            query: req.query,
-          });
+          // console.log('Proxy Outgoing Request (unencrypted):', {
+          //   method: req.method,
+          //   url: targetUrl,
+          //   headers: safeHeaders,
+          //   body: req.body,
+          //   query: req.query,
+          // });
 
           const axiosConfig = {
             method: req.method as any,
@@ -67,11 +67,11 @@ export class ProxyController {
             validateStatus: () => true,
           };
           const response = await axios(axiosConfig);
-          console.log('Proxy Response (unencrypted):', {
-            status: response.status,
-            headers: response.headers,
-            data: response.data,
-          });
+          // console.log('Proxy Response (unencrypted):', {
+          //   status: response.status,
+          //   headers: response.headers,
+          //   data: response.data,
+          // });
           // Encrypt the response before sending
           const encryptedResponse = encrypt(JSON.stringify(response.data));
           res.status(response.status).json(encryptedResponse);

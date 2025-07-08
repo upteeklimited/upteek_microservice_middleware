@@ -17,19 +17,19 @@ export class ProxyService {
 
   detectRequestType(req: Request): 'json' | 'form-data' | 'unknown' {
     // Enhanced debugging
-    console.log('=== REQUEST TYPE DETECTION ===');
-    console.log('Method:', req.method);
-    console.log('URL:', req.originalUrl);
-    console.log('Content-Type:', req.headers['content-type']);
-    console.log(
-      'Content-Type (lowercase):',
-      req.headers['content-type']?.toString().toLowerCase(),
-    );
-    console.log('All headers:', JSON.stringify(req.headers, null, 2));
-    console.log('Body exists:', !!req.body);
-    console.log('Body type:', typeof req.body);
-    console.log('Body keys:', req.body ? Object.keys(req.body) : 'no body');
-    console.log('================================');
+    // console.log('=== REQUEST TYPE DETECTION ===');
+    // console.log('Method:', req.method);
+    // console.log('URL:', req.originalUrl);
+    // console.log('Content-Type:', req.headers['content-type']);
+    // console.log(
+    //   'Content-Type (lowercase):',
+    //   req.headers['content-type']?.toString().toLowerCase(),
+    // );
+    // console.log('All headers:', JSON.stringify(req.headers, null, 2));
+    // console.log('Body exists:', !!req.body);
+    // console.log('Body type:', typeof req.body);
+    // console.log('Body keys:', req.body ? Object.keys(req.body) : 'no body');
+    // console.log('================================');
 
     // Handle preflight requests
     if (req.method === 'OPTIONS') {

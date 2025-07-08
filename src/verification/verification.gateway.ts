@@ -33,43 +33,93 @@ export class VerificationGateway
     console.log(`Socket connected: ${client.id}`);
   }
 
-  private rooms: Map<string, string> = new Map(); // orderId -> roomId
-
-  @SubscribeMessage('register-web')
+  @SubscribeMessage('join_room')
   handleWebRegistration(
     @MessageBody() payload: VerificationPayload,
     @ConnectedSocket() client: Socket,
   ) {
-    const { userId } = payload;
+    const { userId, clientType } = payload;
     // first and foremost check if required room for verification exist
     // if not, create the room and join room
     // if room exist and user not joined, join room
     // if room exist and a user is there, check if user is mobile
     // restrict only two participants to be in a verification room
     // participants are web and mobile
+
+    // first get if the client is a mobile or web
     const roomName = `verification_room_${userId}`;
     const roomExists = this.server.sockets.adapter.rooms.has(roomName);
     const isInRoom = client.rooms.has(roomName);
+    const numberInRoom = this.verificationService.getNumberInRooms();
 
-    if (!roomExists) {
-      client.join(roomName);
-      this.rooms.set(roomName, roomName);
-      console.log(`Room created for verification ${userId} as ${roomName}`);
-      this.server.to(roomName).emit('message', {
-        sender: client.id,
-        message: `Room created for verification ${userId} as ${roomName}`,
-      });
-      return {
-        success: true,
-        message: `Room created for verification ${userId} as ${roomName}`,
-      };
-    } else if (!isInRoom) {
-      client.join(roomName);
-      console.log(`Rejoined room for order ${roomName}`);
-      return { success: true, message: `Rejoined room for order ${roomName}` };
+    if (userId !== undefined && clientType !== undefined) {
+      if (!roomExists) {
+        // first we check
+        client.join(roomName);
+        this.verificationService.setClientsData(client.id, payload);
+        this.verificationService.setRoomsData(roomName, {
+          type: clientType,
+          client: client.id,
+        });
+        console.log(`Room created for verification ${userId} as ${roomName}`);
+        this.server.to(roomName).emit('message', {
+          sender: client.id,
+          message: `Room created for verification ${userId} as ${roomName}`,
+        });
+        return {
+          success: true,
+          message: `Room created for verification ${userId} as ${roomName}`,
+        };
+      } else if (!isInRoom) {
+        console.log('room exist');
+        if (numberInRoom < 2) {
+          console.log('less than 2');
+          // check if the current client type already is connected to the list
+          const clientExistCheck =
+            this.verificationService.checkForExpectedClientType(
+              roomName,
+              payload.clientType,
+            );
+          console.log('check: ', clientExistCheck);
+          if (!clientExistCheck) {
+            console.log('good to go');
+            client.join(roomName);
+            this.verificationService.setClientsData(client.id, payload);
+            this.verificationService.setRoomsData(roomName, {
+              type: clientType,
+              client: client.id,
+            });
+            console.log(
+              'rooms Data: ',
+              this.verificationService.getRoomsData(),
+            );
+            return {
+              success: true,
+              message: `Rejoined room ${roomName}`,
+            };
+          } else {
+            this.verificationService.emitServerMessage(
+              this.server,
+              `A ${clientType} already exist `,
+            );
+            return {
+              success: false,
+              message: `A ${clientType} already exist `,
+            };
+          }
+        }
+      } else {
+        console.log(`${client.id} is already in room ${roomName}`);
+        return { success: false, message: `Already in room ${roomName}` };
+      }
     } else {
-      console.log(`${client.id} is already in room ${roomName}`);
-      return { success: false, message: `Already in room ${roomName}` };
+      this.verificationService.emitServerMessage(
+        this.server,
+        'No identification given',
+      );
+      console.log('No identification given');
+      client.disconnect(true); // true = force disconnect
+      return { success: false, message: 'No identification given' };
     }
   }
 
@@ -102,16 +152,12 @@ export class VerificationGateway
         message: data.data,
       });
       console.log('sending to room with id ' + roomName);
-      // Logger.i('sending to room with id ' + roomName);
-      // Logger.d({
-      //   orderId: data.orderId,
-      //   riderId: data.riderId,
-      //   sender: client.id,
-      //   message: data.message,
-      // });
+      console.log(
+        `message: ${data.data} : User: ${data.userId} in Room ${roomName}`,
+      );
       return { success: true, message: 'Message sent' };
     } else {
-      // Logger.i('Not in any room');
+      console.log('Not in any room');
     }
     return { success: false, message: 'Room not found' };
   }
