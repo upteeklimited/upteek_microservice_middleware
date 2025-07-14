@@ -47,12 +47,12 @@ export class ProxyService {
       .toLowerCase();
 
     if (contentType.includes('application/json')) {
-      console.log('Detected JSON request');
+      // console.log('Detected JSON request');
       return 'json';
     }
 
     if (contentType.includes('multipart/form-data')) {
-      console.log('Detected form-data request');
+      // console.log('Detected form-data request');
       return 'form-data';
     }
 

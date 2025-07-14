@@ -67,11 +67,11 @@ export class ProxyController {
             validateStatus: () => true,
           };
           const response = await axios(axiosConfig);
-          // console.log('Proxy Response (unencrypted):', {
-          //   status: response.status,
-          //   headers: response.headers,
-          //   data: response.data,
-          // });
+          console.log('Proxy Response (unencrypted):', {
+            status: response.status,
+            headers: response.headers,
+            data: response.data,
+          });
           // Encrypt the response before sending
           const encryptedResponse = encrypt(JSON.stringify(response.data));
           res.status(response.status).json(encryptedResponse);
@@ -118,14 +118,14 @@ export class ProxyController {
         res.status(response.status).json(encryptedResponse);
       } catch (error) {
         if (error.response) {
-          // console.log('Proxy Error Response:', {
-          //   status: error.response.status,
-          //   headers: error.response.headers,
-          //   data: error.response.data,
-          // });
+          console.log('Proxy Error Response:', {
+            status: error.response.status,
+            headers: error.response.headers,
+            data: error.response.data,
+          });
           res.status(error.response.status).send(error.response.data);
         } else {
-          // console.error('Proxy Error:', error);
+          console.error('Proxy Error:', error);
           res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
             message: 'Proxy error',
             error: error.message,
@@ -196,14 +196,14 @@ export class ProxyController {
           // Set the correct content-type header for form-data
           Object.assign(safeHeaders, form.getHeaders());
 
-          // console.log('Proxy Outgoing Multipart Request:', {
-          //   method: req.method,
-          //   url: targetUrl,
-          //   headers: safeHeaders,
-          //   fields: req.body,
-          //   files: req.files,
-          //   query: req.query,
-          // });
+          console.log('Proxy Outgoing Multipart Request:', {
+            method: req.method,
+            url: targetUrl,
+            headers: safeHeaders,
+            fields: req.body,
+            files: req.files,
+            query: req.query,
+          });
 
           const axiosConfig = {
             method: req.method as any,
@@ -217,11 +217,11 @@ export class ProxyController {
             validateStatus: () => true,
           };
           const response = await axios(axiosConfig);
-          // console.log('Proxy Multipart Response:', {
-          //   status: response.status,
-          //   headers: response.headers,
-          //   data: response.data,
-          // });
+          console.log('Proxy Multipart Response:', {
+            status: response.status,
+            headers: response.headers,
+            data: response.data,
+          });
           // Encrypt response
           const encryptedResponse = encrypt(JSON.stringify(response.data));
           res.status(response.status).json(encryptedResponse);

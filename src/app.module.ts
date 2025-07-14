@@ -1,19 +1,19 @@
-import { APP_GUARD, Reflector } from '@nestjs/core';
 import { MiddlewareConsumer, Module } from '@nestjs/common';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { AuthGuard } from './guards/auth-guard.guard';
 import { ConfigModule } from '@nestjs/config';
-import { KeepAliveService } from './keepalive/keepalive.service';
+import { MessagesGateway } from './gateways/messages/messages.gateway';
+import { MessagesService } from './gateways/messages/messages.service';
 import { PingController } from './ping/ping.controller';
 import { ProxyController } from './proxy/proxy.controller';
 import { ProxyService } from './proxy/proxy.service';
-import { SanitizeMiddleware } from './middlewares/sanitize.middleware';
+import { Reflector } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
+import { SharedGatewayModule } from './gateways/shared/shared.module';
 import { ValidateRequestMiddleware } from './middlewares/validate-request.middleware';
-import { VerificationGateway } from './verification/verification.gateway';
-import { VerificationService } from './verification/verification.service';
+import { VerificationGateway } from './gateways/verification/verification.gateway';
+import { VerificationService } from './gateways/verification/verification.service';
 
 @Module({
   imports: [
@@ -21,6 +21,7 @@ import { VerificationService } from './verification/verification.service';
       isGlobal: true,
     }),
     ScheduleModule.forRoot(),
+    SharedGatewayModule,
   ],
   controllers: [AppController, PingController, ProxyController],
   providers: [
@@ -34,6 +35,8 @@ import { VerificationService } from './verification/verification.service';
     ProxyService,
     VerificationGateway,
     VerificationService,
+    MessagesGateway,
+    MessagesService,
   ],
 })
 export class AppModule {
