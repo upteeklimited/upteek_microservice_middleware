@@ -34,14 +34,14 @@ export class WebSocketExceptionFilter implements ExceptionFilter {
       message,
       status,
       timestamp: new Date().toISOString(),
-      
     });
 
     // Log the error for debugging
     console.error('WebSocket Exception:', {
       clientId: client.id,
-      exception: exception instanceof Error ? exception.message : String(exception),
+      exception:
+        exception instanceof Error ? exception.message : String(exception),
       stack: exception instanceof Error ? exception.stack : undefined,
     });
   }
-} 
+}
