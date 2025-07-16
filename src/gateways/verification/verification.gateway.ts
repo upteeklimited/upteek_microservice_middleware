@@ -114,8 +114,13 @@ export class VerificationGateway extends BaseGateway {
 
           console.log('check: ', clientExistCheck);
           if (!clientExistCheck) {
-            console.log('good to go');
             client.join(roomName);
+            this.emitToRoom(roomName, 'message', {
+              data: {
+                status: 'true',
+                continue: 'pending',
+              },
+            });
             this.presenceService.addClientToRoom(roomName, {
               type: clientType,
               client: client.id,
