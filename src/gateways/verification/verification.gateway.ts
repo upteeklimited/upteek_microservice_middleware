@@ -173,14 +173,16 @@ export class VerificationGateway extends BaseGateway {
     const roomName = `verification_room_${data.userId}`;
     const isInRoom = client.rooms.has(roomName);
 
+    console.log(roomName);
+
     if (isInRoom) {
       this.emitToRoom(roomName, 'message', {
         sender: client.id,
-        message: data.data,
+        data: data.data,
       });
       console.log('sending to room with id ' + roomName);
       console.log(
-        `message: ${data.data} : User: ${data.userId} in Room ${roomName}`,
+        `message: ${data} : User: ${data.userId} in Room ${roomName}`,
       );
       return { success: true, message: 'Message sent' };
     } else {
