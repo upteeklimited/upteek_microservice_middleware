@@ -11,6 +11,7 @@ import { BaseGateway } from '../shared/base.gateway';
 import { PresenceService } from '../shared/presence.service';
 import { MessagesService } from './messages.service';
 import { WebSocketAuthGuard } from '../guards/websocket-auth.guard';
+import { AuthService } from '../services/auth.service';
 
 interface JoinChatPayload {
   clientType: string;
@@ -28,9 +29,10 @@ interface JoinChatPayload {
 export class MessagesGateway extends BaseGateway {
   constructor(
     presenceService: PresenceService,
+    authService: AuthService,
     private readonly messagesService: MessagesService,
   ) {
-    super(presenceService);
+    super(presenceService, authService);
   }
 
   /**
@@ -61,10 +63,10 @@ export class MessagesGateway extends BaseGateway {
   }
 
   @SubscribeMessage('message')
-  handleMessage(
+  async handleMessage(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: any,
-  ): string {
+  ): Promise<string> {
     try {
       // Check if client is authenticated
       if (!this.isAuthenticated(client)) {
@@ -100,8 +102,34 @@ export class MessagesGateway extends BaseGateway {
         return 'Not in a chat room';
       }
 
+      // Peer notification logic moved here
+      const currentUserId = this.extractUserId(client).toString();
+      const roomName = clientData.roomName;
+      const roomParts = roomName.replace('chat_room_', '').split('_');
+      const [userIdA, userIdB] = roomParts;
+      let otherUserId: string | undefined;
+      if (currentUserId === userIdA) {
+        otherUserId = userIdB;
+      } else if (currentUserId === userIdB) {
+        otherUserId = userIdA;
+      }
+      const res = this.presenceService.getConnectedClientByUserId(otherUserId);
+      this.emitToClient(res[0].clientId, 'peer_joined', {
+        message: `Your chat partner has sent a message in room: ${roomName}`,
+        roomName,
+        peerUserId: currentUserId,
+        timestamp: new Date().toISOString(),
+      });
+
       // Process message using the messages service
-      const result = this.messagesService.processMessage(payload, clientData);
+      const token = client.handshake.headers['authorization'];
+
+      const result = await this.messagesService.processMessage(
+        payload,
+        otherUserId,
+        clientData,
+        token,
+      );
 
       // Send message to the room (P2P chat - only 2 users)
       this.emitToRoom(clientData.roomName, 'message', {
@@ -126,11 +154,21 @@ export class MessagesGateway extends BaseGateway {
     @MessageBody() payload: JoinChatPayload,
   ) {
     try {
+      // Allow anonymous connection, but require authentication for protected actions
       if (!this.isAuthenticated(client)) {
-        this.emitToClient(client.id, 'error', {
-          message: 'Authentication required',
-        });
-        return { success: false, message: 'Authentication required' };
+        // Optionally, check for token and update userId if provided
+        const userId = this.extractUserId(client);
+        const clientType = this.extractClientType(client);
+        console.log('checking: ' + userId);
+        console.log('checking: ' + clientType);
+        if (userId) {
+          this.updateClientAuth(client, userId, clientType);
+        } else {
+          this.emitToClient(client.id, 'error', {
+            message: 'Authentication required',
+          });
+          return { success: false, message: 'Authentication required' };
+        }
       }
 
       console.log('validated auth');
@@ -167,7 +205,7 @@ export class MessagesGateway extends BaseGateway {
       // Create consistent room name using sorter method
       const roomName = this.createRoomName(client_a, client_b);
       const namespace = this.extractNamespace(client);
-      const currentUserId = this.extractUserId(client);
+      const currentUserId = this.extractUserId(client).toString();
 
       // Check if room already exists
       const existingClients = this.presenceService.getRoomData(roomName);
@@ -243,6 +281,8 @@ export class MessagesGateway extends BaseGateway {
           timestamp: new Date().toISOString(),
         });
       }
+
+      // broadcast the two ids for the receiver to get notified of the chat
 
       return {
         success: true,

@@ -29,19 +29,33 @@ export class PresenceService {
   registerClient(
     clientId: string,
     data: Omit<ClientData, 'connectedAt'>,
+    server?: Server,
   ): void {
+    const userIdKey = String(data.userId);
+
+    // Disconnect and unregister all existing sockets for this user
+    const existingSockets = this.userSocketMap.get(userIdKey);
+    if (existingSockets) {
+      for (const existingClientId of existingSockets) {
+        this.unregisterClient(existingClientId);
+        if (server && server.sockets && server.sockets.sockets) {
+          const socket = server.sockets.sockets.get(existingClientId);
+          if (socket) {
+            socket.disconnect(true);
+          }
+        }
+      }
+    }
+
     this.clients.set(clientId, {
       ...data,
       connectedAt: new Date(),
     });
 
-    // Update user-socket mapping
-    if (data.userId) {
-      if (!this.userSocketMap.has(data.userId)) {
-        this.userSocketMap.set(data.userId, new Set());
-      }
-      this.userSocketMap.get(data.userId)!.add(clientId);
+    if (!this.userSocketMap.has(userIdKey)) {
+      this.userSocketMap.set(userIdKey, new Set());
     }
+    this.userSocketMap.get(userIdKey)!.add(clientId);
 
     // Update namespace-socket mapping
     if (data.namespace) {
@@ -67,11 +81,12 @@ export class PresenceService {
       console.log('is client');
       // Remove from user-socket mapping
       if (clientData.userId) {
-        const userSockets = this.userSocketMap.get(clientData.userId);
+        const userIdKey = String(clientData.userId);
+        const userSockets = this.userSocketMap.get(userIdKey);
         if (userSockets) {
           userSockets.delete(clientId);
           if (userSockets.size === 0) {
-            this.userSocketMap.delete(clientData.userId);
+            this.userSocketMap.delete(userIdKey);
           }
         }
       }
@@ -361,21 +376,21 @@ export class PresenceService {
       if (updates.userId && updates.userId !== existingData.userId) {
         // Remove from old user mapping
         if (existingData.userId && existingData.userId !== 'anonymous') {
-          const oldUserSockets = this.userSocketMap.get(existingData.userId);
+          const oldUserSockets = this.userSocketMap.get(String(existingData.userId));
           if (oldUserSockets) {
             oldUserSockets.delete(clientId);
             if (oldUserSockets.size === 0) {
-              this.userSocketMap.delete(existingData.userId);
+              this.userSocketMap.delete(String(existingData.userId));
             }
           }
         }
 
         // Add to new user mapping
         if (updates.userId !== 'anonymous') {
-          if (!this.userSocketMap.has(updates.userId)) {
-            this.userSocketMap.set(updates.userId, new Set());
+          if (!this.userSocketMap.has(String(updates.userId))) {
+            this.userSocketMap.set(String(updates.userId), new Set());
           }
-          this.userSocketMap.get(updates.userId)!.add(clientId);
+          this.userSocketMap.get(String(updates.userId))!.add(clientId);
         }
       }
 
@@ -383,5 +398,45 @@ export class PresenceService {
     } else {
       console.log(`Client ${clientId} not found for update`);
     }
+  }
+
+  /**
+   * Get all connected clients (with clientId)
+   */
+  getAllConnectedClients(): Array<{ clientId: string; data: ClientData }> {
+    return Array.from(this.clients.entries()).map(([clientId, data]) => ({
+      clientId,
+      data,
+    }));
+  }
+
+  /**
+   * Get all connected clients with their IDs (alias for getAllConnectedClients)
+   */
+  getAllConnectedClientsWithIds(): Array<{
+    clientId: string;
+    data: ClientData;
+  }> {
+    return this.getAllConnectedClients();
+  }
+
+  /**
+   * Get all connected clients for a given userId (with clientId)
+   */
+  getConnectedClientByUserId(
+    userId: string,
+  ): Array<{ clientId: string; data: ClientData }> {
+    const userIdKey = String(userId);
+    const clientIds = this.userSocketMap.get(userIdKey);
+    if (!clientIds) return [];
+    return Array.from(clientIds)
+      .map((clientId) => {
+        const data = this.clients.get(clientId);
+        if (data) {
+          return { clientId, data };
+        }
+        return undefined;
+      })
+      .filter(Boolean) as Array<{ clientId: string; data: ClientData }>;
   }
 }

@@ -21,46 +21,49 @@ export class WebSocketAuthGuard implements CanActivate {
     const client: Socket = context.switchToWs().getClient<Socket>();
     const options: WebSocketAuthOptions = this.getAuthOptions(context);
 
-    // If namespace is public, allow connection
+    // If namespace is public, allow event
     if (options.public) {
-      console.log(`Public namespace access granted for client ${client.id}`);
       return true;
     }
 
+    // For protected events, require authentication
     try {
-      // Extract and validate client type header
+      // Validate client type
       if (options.requireClientType !== false) {
         this.validateClientType(client);
       }
-
       // Extract and validate bearer token
       const token = this.extractBearerToken(client);
       if (!token) {
         throw new WsException('Bearer token is required');
       }
-
       // Get client type for auth verification
       const clientType = this.extractClientType(client);
       if (!clientType) {
         throw new WsException('client header is required for authentication');
       }
-
-      // Verify token with auth service (synchronous for guard)
+      // Verify token with auth service
       const userData = this.authService.verifyJwtToken(token);
-      if (!userData) {
+      if (!userData || !userData.user || !userData.user.id) {
         throw new WsException('Invalid or expired token');
       }
-
       // Store user data in socket for later use
-      client.data.user = userData;
+      client.data.user = userData.user;
       client.data.authenticated = true;
-
+      // Optionally update clientType
+      client.data.clientType = clientType;
+      // Optionally update userId in presence service if needed
+      if (client.data.user.id) {
+        // If BaseGateway is used, update presence service
+        if (typeof client['presenceService']?.updateClientData === 'function') {
+          client['presenceService'].updateClientData(client.id, {
+            userId: client.data.user.id,
+            clientType,
+          });
+        }
+      }
       return true;
     } catch (error) {
-      console.error(
-        `Authentication failed for client ${client.id}:`,
-        error.message,
-      );
       throw new WsException(error.message || 'Authentication failed');
     }
   }

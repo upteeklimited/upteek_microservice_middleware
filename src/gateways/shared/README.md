@@ -40,6 +40,36 @@ Central service that manages:
 - `emitClientMessage()` - Emit message to a specific client
 - `isClientConnected()` - Check if client is still connected
 
+**User ID Normalization:**
+
+- All user IDs are normalized to strings internally for registration and lookup.
+- This ensures that userId `5` and userId `'5'` are treated as the same user.
+- All methods that accept or return userId (such as `registerClient`, `getConnectedClientByUserId`, etc.) will work reliably regardless of whether you pass a number or a string.
+
+**Client Listing Utilities:**
+
+- `getAllConnectedClients()`: Returns an array of all connected clients, each with their `clientId` and `data` (ClientData).
+- `getAllConnectedClientsWithIds()`: Alias for `getAllConnectedClients()`.
+- `getConnectedClientByUserId(userId)`: Returns all connected clients for a given userId (as string or number), each with their `clientId` and `data`.
+
+**Example:**
+
+```typescript
+// List all connected clients
+const allClients = presenceService.getAllConnectedClients();
+// [{ clientId: 'socketid1', data: { userId: '5', ... } }, ...]
+
+// List all connected clients for a user (works for number or string)
+const userClients = presenceService.getConnectedClientByUserId(5);
+// [{ clientId: 'socketid1', data: { userId: '5', ... } }, ...]
+```
+
+**Single Active Connection per User:**
+
+// Only one active connection per userId is allowed at a time, across all namespaces.
+// When a new connection is made for a user, all previous sockets for that user are disconnected and unregistered.
+// This ensures that a user can only be online from one socket at a time, regardless of namespace.
+
 ### 2. BaseGateway (`src/gateways/shared/base.gateway.ts`)
 
 Abstract base class that provides:
@@ -146,385 +176,28 @@ messagesSocket.emit('join_chat', {
 - Use `message` to send messages to the room. All devices/tabs for both users receive the message.
 - Attempts to join a full room by a third user will be rejected.
 
-## WebSocket Authentication
+#### Peer Notification on Message (UPDATED)
 
-### Authentication Flow
+- When a user sends a message in a chat room, the server identifies the other user in the room (based on the room name).
+- If the other user is online (has active sockets), the server emits a `peer_joined` event to all of their sockets.
+- The payload includes the room name, the peer's userId, and a timestamp.
 
-1. **Client Connection** → WebSocketAuthGuard intercepts
-2. **Token Extraction** → Bearer token extracted from headers/auth/query
-3. **Token Verification** → AuthService verifies with backend server
-4. **User Data Storage** → User data stored in socket.data
-5. **Connection Established** → Gateway methods can access user data
-
-### Public vs Private Namespaces
-
-#### Public Namespaces (No Authentication)
-
-```typescript
-@WebSocketGateway({ namespace: 'verification' })
-@PublicWebSocket()
-export class VerificationGateway extends BaseGateway {
-  // No authentication required
-}
-```
-
-#### Private Namespaces (Authentication Required)
-
-```typescript
-@WebSocketGateway({ namespace: 'messages' })
-@UseGuards(WebSocketAuthGuard)
-export class MessagesGateway extends BaseGateway {
-  // Authentication required
-}
-```
-
-### Client Connection Examples
-
-#### Public Namespace (Verification)
+##### Example: Peer Notification
 
 ```javascript
-// No authentication required
-const verificationSocket = io('http://localhost:3000/verification', {
-  headers: {
-    'x-client-type': 'user' // Optional but recommended (admin/user/bank)
-  }
+// Client-side: Listen for peer_joined event
+messagesSocket.on('peer_joined', (data) => {
+  console.log('Your chat partner has sent a message:', data);
+  // data = {
+  //   message: 'Your chat partner has sent a message in room: chat_room_admin456_user123',
+  //   roomName: 'chat_room_admin456_user123',
+  //   peerUserId: 'user123',
+  //   timestamp: '...'
+  // }
 });
 ```
 
-#### Private Namespace (Messages)
-
-```javascript
-// Authentication required
-const messagesSocket = io('http://localhost:3000/messages', {
-  headers: {
-    'Authorization': 'Bearer your-jwt-token-here',
-    'x-client-type': 'user' // Required (admin/user/bank)
-  }
-});
-
-// Alternative: Using auth object
-const messagesSocket = io('http://localhost:3000/messages', {
-  auth: {
-    token: 'your-jwt-token-here',
-    clientType: 'user'
-  }
-});
-```
-
-### Authentication Configuration
-
-#### Environment Variables
-
-```bash
-# Target server URLs for different client types (same as ProxyService)
-ADMIN=http://localhost:3001
-USERS=http://localhost:3002
-BANK=http://localhost:3003
-
-# Auth server URL for token verification (fallback)
-AUTH_SERVER_URL=http://localhost:3000
-```
-
-#### Target URL Resolution
-
-The AuthService now uses the same target URL resolution logic as the ProxyService:
-
-```typescript
-// AuthService.getTargetUrl() method
-const SERVER_URLS = {
-  admin: process.env.ADMIN || '',
-  user: process.env.USERS || '',
-  bank: process.env.BANK || '',
-};
-
-// Token verification uses the appropriate server based on client type
-const targetUrl = this.getTargetUrl(clientType);
-const verifyEndpoint = `${targetUrl}/api/auth/verify`;
-```
-
-**Benefits:**
-- **Consistent routing**: Same logic as ProxyService for server selection
-- **Environment-based**: Uses environment variables for server URLs
-- **Client type aware**: Different servers for different client types
-- **Fallback support**: Graceful handling of missing environment variables
-
-#### Client Type Validation
-
-The WebSocketAuthGuard validates client types using the same logic as the ProxyService:
-
-```typescript
-// Valid client types (case-insensitive)
-const validClientTypes = ['admin', 'user', 'bank'];
-
-// Client type is stored in lowercase
-client.data.clientType = clientType.toLowerCase();
-```
-
-**Benefits:**
-- **Consistent validation**: Same client types as ProxyService
-- **Case-insensitive**: Accepts any case (Admin, ADMIN, admin)
-- **Environment mapping**: Maps to appropriate server URLs
-- **Clear error messages**: Specific validation error messages
-
-#### AuthService Configuration
-
-```typescript
-// Token verification endpoint
-POST ${AUTH_SERVER_URL}/api/auth/verify
-{
-  "token": "your-jwt-token"
-}
-
-// Expected response
-{
-  "valid": true,
-  "user": {
-    "userId": "user123",
-    "email": "user@example.com",
-    "username": "testuser",
-    "roles": ["user"],
-    "permissions": ["read", "write"]
-  }
-}
-```
-
-### User Data Access in Gateways
-
-```typescript
-@SubscribeMessage('message')
-handleMessage(@ConnectedSocket() client: Socket, @MessageBody() payload: any) {
-  // Access user data from authenticated socket
-  const user = client.data?.user;
-  if (user) {
-    console.log(`Message from user: ${user.userId}`);
-    
-    // Check roles and permissions
-    if (this.authService.hasRole(user, 'admin')) {
-      // Admin-specific logic
-    }
-    
-    if (this.authService.hasPermission(user, 'write')) {
-      // Write permission logic
-    }
-  }
-}
-```
-
-## Client Registration & Authentication Flow
-
-### Initial Connection
-
-All clients are registered immediately upon connection, even without authentication data:
-
-```typescript
-// Client connects without userId
-const socket = io('http://localhost:3000/verification');
-
-// Client is registered with placeholder data
-// userId: 'anonymous', clientType: undefined, namespace: '/verification'
-```
-
-### Authentication Update
-
-Clients can provide authentication data at any time during their session:
-
-```typescript
-// Client sends authentication data
-socket.emit('join_room', {
-  userId: 'user123',
-  clientType: 'web'
-});
-
-// Client data is updated in PresenceService
-// userId: 'user123', clientType: 'web', namespace: '/verification'
-```
-
-### Benefits of This Approach
-
-1. **No Connection Failures**: Clients always connect successfully
-2. **Flexible Authentication**: Authentication can happen at any time
-3. **Better User Experience**: No need to reconnect after authentication
-4. **Graceful Handling**: Anonymous clients are tracked but clearly marked
-5. **Debugging**: Clear logging shows client lifecycle
-6. **Security**: Bearer token validation with backend server
-7. **Client Type Validation**: Enforces proper client type headers
-
-## Namespace Implementation
-
-### Connection URLs
-
-Clients connect to specific namespaces:
-
-```javascript
-// Connect to verification namespace (public)
-const verificationSocket = io('http://localhost:3000/verification');
-
-// Connect to messages namespace (authenticated)
-const messagesSocket = io('http://localhost:3000/messages');
-```
-
-### Namespace Benefits
-
-1. **Isolation**: Events and rooms are isolated per namespace
-2. **Organization**: Clear separation of concerns
-3. **Scalability**: Easy to add new namespaces for new features
-4. **Security**: Can apply different authentication/authorization per namespace
-5. **Performance**: Better resource management and monitoring
-
-### Namespace Statistics
-
-```typescript
-// Get stats for a specific namespace
-const verificationStats = this.getNamespaceStats('verification');
-console.log(`Verification clients: ${verificationStats.clients}`);
-console.log(`Verification rooms: ${verificationStats.rooms}`);
-
-// Get all namespace stats
-const allStats = this.getConnectionStats();
-console.log(`Total namespaces: ${allStats.totalNamespaces}`);
-```
-
-## Usage Examples
-
-### Creating a New Namespace Gateway
-
-#### Public Gateway
-
-```typescript
-import { SubscribeMessage, ConnectedSocket, MessageBody, WebSocketGateway } from '@nestjs/websockets';
-import { Socket } from 'socket.io';
-import { BaseGateway } from '../shared/base.gateway';
-import { PresenceService } from '../shared/presence.service';
-import { PublicWebSocket } from '../decorators/public.decorator';
-
-@WebSocketGateway({
-  namespace: 'notifications',
-  cors: { origin: '*' },
-})
-@PublicWebSocket()
-export class NotificationGateway extends BaseGateway {
-  constructor(presenceService: PresenceService) {
-    super(presenceService);
-  }
-
-  @SubscribeMessage('subscribe_notifications')
-  handleSubscribe(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { userId: string }
-  ) {
-    // Update client data with provided userId
-    this.updateClientData(client.id, {
-      userId: payload.userId,
-      clientType: 'notification'
-    });
-
-    const roomName = `notifications_${payload.userId}`;
-    const namespace = this.extractNamespace(client);
-    
-    client.join(roomName);
-    
-    this.presenceService.addClientToRoom(roomName, {
-      type: 'notification',
-      client: client.id,
-      namespace,
-    });
-
-    return { success: true, message: 'Subscribed to notifications' };
-  }
-}
-```
-
-#### Private Gateway
-
-```typescript
-import { SubscribeMessage, ConnectedSocket, MessageBody, WebSocketGateway } from '@nestjs/websockets';
-import { UseGuards } from '@nestjs/common';
-import { Socket } from 'socket.io';
-import { BaseGateway } from '../shared/base.gateway';
-import { PresenceService } from '../shared/presence.service';
-import { WebSocketAuthGuard } from '../guards/websocket-auth.guard';
-
-@WebSocketGateway({
-  namespace: 'secure',
-  cors: { origin: '*' },
-})
-@UseGuards(WebSocketAuthGuard)
-export class SecureGateway extends BaseGateway {
-  constructor(presenceService: PresenceService) {
-    super(presenceService);
-  }
-
-  @SubscribeMessage('secure_message')
-  handleSecureMessage(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() payload: any
-  ) {
-    // User data is automatically available from authentication
-    const user = client.data?.user;
-    console.log(`Secure message from authenticated user: ${user?.userId}`);
-    
-    return { success: true, message: 'Secure message processed' };
-  }
-}
-```
-
-### Using PresenceService with Namespaces
-
-```typescript
-// Get all clients in a specific namespace
-const verificationClients = this.presenceService.getNamespaceClients('verification');
-
-// Get rooms for a specific namespace
-const verificationRooms = this.presenceService.getNamespaceRooms('verification');
-
-// Get namespace-specific statistics
-const stats = this.presenceService.getNamespaceStats('messages');
-console.log(`Messages clients: ${stats.clients}, rooms: ${stats.rooms}`);
-
-// Update client data
-this.presenceService.updateClientData(clientId, {
-  userId: 'newUserId',
-  clientType: 'mobile'
-});
-
-// Emit message to all clients
-this.presenceService.emitServerMessage(server, 'System maintenance', { scheduled: true });
-
-// Emit message to specific client
-this.presenceService.emitClientMessage(server, clientId, 'Welcome message', { userId: 'user123' });
-```
-
-### Messages Gateway - Join Chat Functionality
-
-#### Join Chat Payload
-
-The `join_chat` event requires a specific payload structure:
-
-```typescript
-interface JoinChatPayload {
-  clientType: string;  // 'admin', 'user', or 'bank'
-  client_a: string;    // First client ID (sender)
-  client_b: string;    // Second client ID (receiver)
-}
-```
-
-#### Sorter Method
-
-The gateway uses a sorter method to ensure consistent room names:
-
-```typescript
-// Room names are always sorted alphabetically
-// client_a: "user123", client_b: "admin456" → room: "chat_room_admin456_user123"
-// client_a: "admin456", client_b: "user123" → room: "chat_room_admin456_user123"
-```
-
-#### Room Creation Logic
-
-1. **First Person**: Creates the room and receives `room_created` event
-2. **Second Person**: Joins existing room and receives `user_joined` event
-3. **Consistent Naming**: Both get the same room name regardless of join order
-
-#### Client Examples
+### Client Examples
 
 ```javascript
 // First person joining (creates room)
@@ -657,6 +330,74 @@ handleAuthentication(
   return { success: true, message: 'Authentication successful' };
 }
 ```
+
+## Root Namespace Gateway (`/`)
+
+### RootGateway (`/` namespace) - **ANONYMOUS & AUTH SUPPORTED**
+
+- Handles all connections to the root namespace (`/`).
+- Registers all clients, even if they do not provide authentication data or clientType.
+- Clients are tracked as anonymous unless they authenticate later.
+- Supports broadcasting to all root clients and sending messages to specific socketIds/userIds.
+- Inherits all connection/disconnection logic from `BaseGateway`.
+
+#### Example: Connecting to Root Namespace
+
+```javascript
+// Connect to root namespace (no auth required)
+const rootSocket = io('http://localhost:3000/');
+
+// Optionally, authenticate after connecting
+rootSocket.emit('authenticate', {
+  userId: 'user123',
+  clientType: 'web',
+});
+```
+
+#### Example: Authenticate Event Handler
+
+```typescript
+@SubscribeMessage('authenticate')
+handleAuthenticate(
+  @ConnectedSocket() client: Socket,
+  @MessageBody() payload: { userId: string; clientType?: string },
+) {
+  this.updateClientAuth(client, payload.userId, payload.clientType);
+  return { success: true, message: 'Authenticated' };
+}
+```
+
+### Updated BaseGateway Connection Logic
+
+- On connection, `BaseGateway` now registers the client with `userId` and `clientType` if provided, or as anonymous otherwise.
+- This logic is used by all gateways, including the root.
+
+#### Example: Flexible Registration
+
+```typescript
+handleConnection(client: Socket): void {
+  const userId = this.extractUserId(client) || 'anonymous';
+  const clientType = this.extractClientType(client);
+  const namespace = this.extractNamespace(client);
+  this.presenceService.registerClient(client.id, {
+    userId,
+    clientType,
+    namespace,
+  });
+}
+```
+
+### Summary Table: Authentication Methods
+
+| Namespace         | At Connection (token/clientType) | After Connection (event)         |
+|-------------------|----------------------------------|----------------------------------|
+| `/messages`       | Yes (via headers/auth)            | No (must connect with auth)      |
+| `/verification`   | No (public)                       | Yes (`join_room` event)          |
+| `/` (root)        | No (anonymous by default)         | Yes (`authenticate` event)       |
+
+- **All clients are registered and tracked, even if anonymous.**
+- **Authentication can be performed after connection for root and public namespaces.**
+- **Client data (userId/clientType) can be updated at any time.**
 
 ## Troubleshooting
 

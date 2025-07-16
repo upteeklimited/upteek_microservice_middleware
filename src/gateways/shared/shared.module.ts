@@ -1,6 +1,7 @@
 import { AuthService } from '../services/auth.service';
 import { Module } from '@nestjs/common';
 import { PresenceService } from './presence.service';
+import { RootGateway } from '../root.gateway';
 import { WebSocketAuthGuard } from '../guards/websocket-auth.guard';
 import { WebSocketExceptionFilter } from './websocket-exception.filter';
 
@@ -10,6 +11,7 @@ import { WebSocketExceptionFilter } from './websocket-exception.filter';
     WebSocketExceptionFilter,
     AuthService,
     WebSocketAuthGuard,
+    RootGateway,
   ],
   exports: [
     PresenceService,

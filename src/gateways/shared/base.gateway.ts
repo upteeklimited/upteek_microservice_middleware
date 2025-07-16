@@ -5,6 +5,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 
+import { AuthService } from '../services/auth.service';
 import { PresenceService } from './presence.service';
 
 export abstract class BaseGateway
@@ -13,30 +14,45 @@ export abstract class BaseGateway
   @WebSocketServer()
   protected server: Server;
 
-  constructor(protected readonly presenceService: PresenceService) {}
+  constructor(
+    protected readonly presenceService: PresenceService,
+    protected readonly authService: AuthService,
+  ) {}
 
   /**
    * Handle client connection
    */
   handleConnection(client: Socket): void {
-    console.log(`Socket connected: ${client.id}`);
-
-    // Extract user information from handshake auth or query params
-    const userId = this.extractUserId(client);
+    // Extract userId and clientType if provided
+    let userId = this.extractUserId(client) || 'anonymous';
     const clientType = this.extractClientType(client);
     const namespace = this.extractNamespace(client);
 
-    console.log(
-      `Connection details - userId: ${userId}, clientType: ${clientType}, namespace: ${namespace}`,
-    );
+    // Attempt to validate token if present
+    const token = this.extractBearerToken(client);
+    if (token && this.authService) {
+      const userData = this.authService.verifyJwtToken(token);
+      if (userData && userData.user && userData.user.id) {
+        userId = userData.user.id;
+        client.data.user = userData.user;
+        client.data.authenticated = true;
+        // Do not update clientType from token, as it's not present in UserData
+      }
+    }
 
-    // Register all clients, even without userId initially
-    this.presenceService.registerClient(client.id, {
-      userId: userId || 'anonymous', // Use 'anonymous' as placeholder
-      clientType,
-      namespace,
-    });
-    console.log(`Client ${client.id} registered successfully`);
+    this.presenceService.registerClient(
+      client.id,
+      {
+        userId,
+        clientType,
+        namespace,
+      },
+      this.server,
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      `Client ${client.id} registered as ${userId} in namespace ${namespace}`,
+    );
   }
 
   /**
@@ -63,8 +79,8 @@ export abstract class BaseGateway
    */
   protected extractUserId(client: Socket): string | undefined {
     // First check if client is authenticated and has user data
-    if (client.data?.authenticated && client.data?.user?.user?.id) {
-      return client.data.user.user.id;
+    if (client.data?.authenticated && client.data?.user?.id) {
+      return client.data.user.id;
     }
 
     // Try to get from auth object first
@@ -84,20 +100,21 @@ export abstract class BaseGateway
 
   /**
    * Extract client type from client connection
-   * Override this method in subclasses for custom extraction logic
+   * Now only from x-client-type header, handshake auth, or query
    */
   protected extractClientType(client: Socket): string | undefined {
-    // First check if client has stored client type from authentication
-    if (client.data?.clientType) {
-      return client.data.clientType;
+    // Try to get from headers first
+    const headers = client.handshake.headers;
+    if (headers['x-client-type']) {
+      return Array.isArray(headers['x-client-type'])
+        ? headers['x-client-type'][0]
+        : headers['x-client-type'];
     }
-
-    // Try to get from auth object first
+    // Try to get from auth object
     const auth = client.handshake.auth;
     if (auth?.clientType) {
       return auth.clientType;
     }
-
     // Try to get from query parameters
     const query = client.handshake.query;
     if (query?.clientType) {
@@ -105,7 +122,6 @@ export abstract class BaseGateway
         ? query.clientType[0]
         : query.clientType;
     }
-
     return undefined;
   }
 
@@ -189,5 +205,48 @@ export abstract class BaseGateway
    */
   protected getNamespaceStats(namespace: string) {
     return this.presenceService.getNamespaceStats(namespace);
+  }
+
+  /**
+   * Update client authentication data after verification
+   */
+  protected updateClientAuth(
+    client: Socket,
+    userId: string,
+    clientType?: string,
+  ): void {
+    this.presenceService.updateClientData(client.id, {
+      userId,
+      clientType,
+    });
+    client.data.authenticated = true;
+    client.data.userId = userId;
+    if (clientType) client.data.clientType = clientType;
+  }
+
+  /**
+   * Extract bearer token from headers, auth, or query
+   */
+  protected extractBearerToken(client: Socket): string | undefined {
+    // Try to get from headers first
+    const headers = client.handshake.headers;
+    const authHeader = headers.authorization || headers.Authorization;
+    if (authHeader) {
+      const token = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+      if (token.startsWith('Bearer ')) {
+        return token.substring(7);
+      }
+    }
+    // Try to get from auth object
+    const auth = client.handshake.auth;
+    if (auth?.token) {
+      return auth.token;
+    }
+    // Try to get from query parameters
+    const query = client.handshake.query;
+    if (query?.token) {
+      return Array.isArray(query.token) ? query.token[0] : query.token;
+    }
+    return undefined;
   }
 }

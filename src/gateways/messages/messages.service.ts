@@ -1,15 +1,51 @@
+import * as FormData from 'form-data';
+
+import { AuthService } from '../services/auth.service';
 import { ClientData } from '../shared/presence.service';
 import { Injectable } from '@nestjs/common';
+import axios from 'axios';
 
 @Injectable()
 export class MessagesService {
-  processMessage(payload: any, clientData: ClientData): string {
-    // Process the message based on the payload and client data
+  constructor(private readonly authService: AuthService) {}
+
+  async processMessage(
+    payload: any,
+    receiver: any,
+    clientData: ClientData,
+    token?: string,
+  ): Promise<string> {
     console.log(`Processing message from user ${clientData.userId}:`, payload);
-
-    // Add your message processing logic here
-    // For example: store in database, apply business rules, etc.
-
-    return `Message processed successfully for user ${clientData.userId}`;
+    try {
+      const targetUrl = this.authService.getTargetUrl(
+        clientData.clientType || 'user',
+      );
+      const apiEndpoint = `${targetUrl}messages/create`;
+      console.log(apiEndpoint);
+      // Create FormData
+      const formData = new FormData();
+      formData.append('receiver_id', receiver);
+      formData.append('body', payload);
+      // Prepare headers
+      const headers = formData.getHeaders();
+      if (token) {
+        headers['Authorization'] = `${token}`;
+      }
+      // Remove unsafe headers
+      delete headers['host'];
+      delete headers['content-length'];
+      delete headers['accept-encoding'];
+      delete headers['connection'];
+      delete headers['transfer-encoding'];
+      console.dir(headers);
+      // Send the message as multipart/form-data
+      const response = await axios.post(apiEndpoint, formData, {
+        headers,
+      });
+      return `Message sent to backend. Response: ${JSON.stringify(response.data)}`;
+    } catch (error) {
+      console.error('Error sending message to backend:', error);
+      return `Failed to send message to backend: ${error.message}`;
+    }
   }
 }

@@ -11,6 +11,7 @@ import { PresenceService } from '../shared/presence.service';
 import { VerificationService } from './verification.service';
 import { message, VerificationPayload } from './dto/verification.dto';
 import { PublicWebSocket } from '../decorators/public.decorator';
+import { AuthService } from '../services/auth.service';
 
 @WebSocketGateway({
   namespace: 'verification',
@@ -22,9 +23,10 @@ import { PublicWebSocket } from '../decorators/public.decorator';
 export class VerificationGateway extends BaseGateway {
   constructor(
     presenceService: PresenceService,
+    authService: AuthService,
     private readonly verificationService: VerificationService,
   ) {
-    super(presenceService);
+    super(presenceService, authService);
   }
 
   @SubscribeMessage('join_room')
@@ -34,15 +36,11 @@ export class VerificationGateway extends BaseGateway {
   ) {
     try {
       const { userId, clientType } = payload;
-
-      // Validate required fields
-      if (!userId || !clientType) {
-        console.log(
-          `Client ${client.id} attempted to join without proper identification:`,
-          { userId, clientType },
-        );
-
-        // Check if client is still connected before trying to emit
+      // Allow anonymous connection, but update userId/clientType if provided
+      if (userId && clientType) {
+        this.updateClientAuth(client, userId, clientType);
+      } else {
+        // If not provided, keep as anonymous and notify
         if (this.presenceService.isClientConnected(this.server, client.id)) {
           try {
             this.presenceService.emitClientMessage(
@@ -51,17 +49,18 @@ export class VerificationGateway extends BaseGateway {
               'No identification given - userId and clientType are required',
             );
           } catch (emitError) {
+            // eslint-disable-next-line no-console
             console.log(
               `Could not emit error message to client ${client.id}:`,
               emitError,
             );
           }
         } else {
+          // eslint-disable-next-line no-console
           console.log(
             `Client ${client.id} is no longer connected, skipping message emission`,
           );
         }
-
         return {
           success: false,
           message:
