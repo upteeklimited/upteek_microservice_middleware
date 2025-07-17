@@ -4,14 +4,14 @@ import {
   SubscribeMessage,
   WebSocketGateway,
 } from '@nestjs/websockets';
-import { Socket } from 'socket.io';
+import { VerificationPayload, message } from './dto/verification.dto';
 
+import { AuthService } from '../services/auth.service';
 import { BaseGateway } from '../shared/base.gateway';
 import { PresenceService } from '../shared/presence.service';
-import { VerificationService } from './verification.service';
-import { message, VerificationPayload } from './dto/verification.dto';
 import { PublicWebSocket } from '../decorators/public.decorator';
-import { AuthService } from '../services/auth.service';
+import { Socket } from 'socket.io';
+import { VerificationService } from './verification.service';
 
 @WebSocketGateway({
   namespace: 'verification',
@@ -36,31 +36,17 @@ export class VerificationGateway extends BaseGateway {
   ) {
     try {
       const { userId, clientType } = payload;
+      const clientId = client.id;
+      const namespace = 'verification';
+
       // Allow anonymous connection, but update userId/clientType if provided
-      if (userId && clientType) {
-        this.updateClientAuth(client, userId, clientType);
-      } else {
-        // If not provided, keep as anonymous and notify
-        if (this.presenceService.isClientConnected(this.server, client.id)) {
-          try {
-            this.presenceService.emitClientMessage(
-              this.server,
-              client.id,
-              'No identification given - userId and clientType are required',
-            );
-          } catch (emitError) {
-            // eslint-disable-next-line no-console
-            console.log(
-              `Could not emit error message to client ${client.id}:`,
-              emitError,
-            );
-          }
-        } else {
-          // eslint-disable-next-line no-console
-          console.log(
-            `Client ${client.id} is no longer connected, skipping message emission`,
-          );
-        }
+      if (!userId && !clientType) {
+        // user joined without providing the necessary credentials
+        this.emitToClient(
+          clientId,
+          'message',
+          'Missing necessary connection fields',
+        );
         return {
           success: false,
           message:
@@ -68,89 +54,115 @@ export class VerificationGateway extends BaseGateway {
         };
       }
 
+      // now that all is set, we proceed
+
       console.log('Processing join_room request for user:', userId);
+      // define the room name
+      const roomName: string = `verification_room_${userId}`;
+      const roomExists = this.presenceService.roomExists(roomName); // check if room exist
 
-      // Update client data with the provided userId and clientType
-      this.presenceService.updateClientData(client.id, {
-        userId,
-        clientType,
-      });
+      if (roomExists) {
+        console.log('rooms exist');
+        // room exist, now we proceed
+        const isInRoom = client.rooms.has(roomName);
+        const numberInRoom = this.presenceService.getRoomCount();
 
-      const roomName = `verification_room_${userId}`;
-      const roomExists = this.presenceService.roomExists(roomName);
-      const isInRoom = client.rooms.has(roomName);
-      const numberInRoom = this.presenceService.getRoomCount();
-      const namespace = this.extractNamespace(client);
-
-      if (!roomExists) {
-        // Create new room and join
-        client.join(roomName);
-        this.presenceService.addClientToRoom(roomName, {
-          type: clientType,
-          client: client.id,
-          namespace,
-        });
-
-        console.log(`Room created for verification ${userId} as ${roomName}`);
-        this.emitToRoom(roomName, 'message', {
-          sender: client.id,
-          message: `Room created for verification ${userId} as ${roomName}`,
-        });
-
-        return {
-          success: true,
-          message: `Room created for verification ${userId} as ${roomName}`,
-        };
-      } else if (!isInRoom) {
-        console.log('room exist');
-        if (numberInRoom < 2) {
-          console.log('less than 2');
-
-          // Check if the current client type already exists in the room
-          const clientExistCheck = this.presenceService.hasClientTypeInRoom(
-            roomName,
-            payload.clientType,
-          );
-
-          console.log('check: ', clientExistCheck);
-          if (!clientExistCheck) {
-            client.join(roomName);
-            this.emitToRoom(roomName, 'message', {
-              data: {
-                status: 'true',
-                continue: 'pending',
-              },
-            });
-            this.presenceService.addClientToRoom(roomName, {
-              type: clientType,
-              client: client.id,
-              namespace,
-            });
-
-            console.log('rooms Data: ', this.presenceService.getAllRoomsData());
-            return {
-              success: true,
-              message: `Rejoined room ${roomName}`,
-            };
+        // first we ensure user is not already in room
+        // then we ensure the room is not at max capacity
+        if (!isInRoom) {
+          console.log('user not in room');
+          // user is not in room
+          if (numberInRoom < 2) {
+            console.log('less than 2');
+            // number in room is less than 2 and most likely greater than 1
+            // Check if the current client type already exists in the room
+            const clientTypeExistCheck =
+              this.presenceService.hasClientTypeInRoom(
+                roomName,
+                payload.clientType,
+              );
+            if (!clientTypeExistCheck) {
+              client.join(roomName);
+              this.presenceService.addClientToRoom(roomName, {
+                type: clientType,
+                client: clientId,
+                namespace,
+              });
+              this.emitToClient(clientId, 'message', 'Joined room');
+              return {
+                success: true,
+                message: `Joined room ${roomName}`,
+              };
+            } else {
+              this.emitToClient(
+                clientId,
+                'message',
+                "You can't join this room",
+              );
+              return {
+                success: false,
+                message: `User can\'t join ${roomName}`,
+              };
+            }
           } else {
-            console.log('room count: ', this.presenceService.getRoomCount());
-            console.log(
-              'room data: ',
-              this.presenceService.getRoomData(roomName),
-            );
-            this.presenceService.emitServerMessage(
-              this.server,
-              `A ${clientType} already exist `,
-            );
-            return {
-              success: false,
-              message: `A ${clientType} already exist `,
-            };
+            // here we do something, and this is subject to further review
+            // for lack of a better approach
+            // we want to ensure for sake of the system not removing a disconnected
+            // user from the room, we just replace the user based on type
+            // this should only happen for the mobile clients
+            console.log('more than 2 in room');
+            if (clientType.toLocaleLowerCase() == 'mobile') {
+              // remove the mobile client from the room
+              this.presenceService.removeClientTypeFromRoom(
+                roomName,
+                payload.clientType,
+              );
+              // add the new mobile client to the room
+              client.join(roomName);
+              this.presenceService.addClientToRoom(roomName, {
+                type: clientType,
+                client: clientId,
+                namespace,
+              });
+              this.emitToClient(clientId, 'message', 'Joined room');
+              return {
+                success: true,
+                message: `Joined room ${roomName}`,
+              };
+            }
           }
+        } else {
+          return { success: false, message: `Already in room ${roomName}` };
         }
       } else {
-        console.log(`${client.id} is already in room ${roomName}`);
-        return { success: false, message: `Already in room ${roomName}` };
+        // room does not exist now we create the room and add the users
+        // first we ensure only the web client can create rooms
+        if (clientType.toLocaleLowerCase() == 'web') {
+          console.log('creating new room');
+          client.join(roomName);
+          this.presenceService.addClientToRoom(roomName, {
+            type: clientType,
+            client: clientId,
+            namespace,
+          });
+          this.emitToClient(clientId, 'message', 'Joined verification room');
+          return {
+            success: true,
+            message: `Room created for as ${roomName}`,
+          };
+        } else {
+          // emit to the current client that room does not exist
+          this.emitToClient(
+            clientId,
+            'message',
+            'Room does not exist, ensure you are scanning the right code',
+          );
+          return {
+            success: false,
+            message:
+              'Room does not exist, ensure you are scanning the right code',
+          };
+        }
       }
     } catch (error) {
       console.error('Error in handleWebRegistration:', error);
@@ -170,29 +182,61 @@ export class VerificationGateway extends BaseGateway {
     }
   }
 
+  @SubscribeMessage('leave_room')
+  handleLeaveRoom(
+    @MessageBody() payload: VerificationPayload,
+    @ConnectedSocket() client: Socket,
+  ) {
+    try {
+      const { userId } = payload;
+      const roomName = `verification_room_${userId}`;
+      const roomExists = this.presenceService.roomExists(roomName);
+      if (roomExists) {
+        this.presenceService.removeClientFromRoom(roomName, client.id);
+      }
+    } catch (error) {
+      console.error('Error in handleWebRegistration:', error);
+      try {
+        this.presenceService.emitClientMessage(
+          this.server,
+          client.id,
+          'Internal server error',
+        );
+      } catch (emitError) {
+        console.log(`Could not leave room`, emitError);
+      }
+    }
+  }
+
   @SubscribeMessage('message')
   async handleMessage(
     @MessageBody() data: message,
     @ConnectedSocket() client: Socket,
   ) {
-    const roomName = `verification_room_${data.userId}`;
-    const isInRoom = client.rooms.has(roomName);
-
-    console.log(roomName);
-
-    if (isInRoom) {
-      this.emitToRoom(roomName, 'message', {
-        sender: client.id,
-        data: data.data,
+    try {
+      const clientData = this.getClientData(client.id);
+      const roomName = clientData.roomName;
+      const roomExists = this.presenceService.roomExists(roomName);
+      console.log('User id: ', roomName);
+      if (roomExists) {
+        if (roomName) {
+          this.emitToRoom(roomName, 'message', {
+            sender: client.id,
+            data: data.data,
+          });
+          return { success: true, message: 'Message sent' };
+        } else {
+          console.log('Not in any room');
+        }
+      } else {
+        console.log('Room does not exist');
+      }
+    } catch (error) {
+      console.error('Error in handleMessage:', error);
+      this.emitToClient(client.id, 'error', {
+        message: 'Internal server error',
       });
-      console.log('sending to room with id ' + roomName);
-      console.log(
-        `message: ${data} : User: ${data.userId} in Room ${roomName}`,
-      );
-      return { success: true, message: 'Message sent' };
-    } else {
-      console.log('Not in any room');
+      return 'Internal server error';
     }
-    return { success: false, message: 'Room not found' };
   }
 }

@@ -11,14 +11,14 @@ export class VerificationService {
   getVerificationStats() {
     const allRooms = this.presenceService.getAllRoomsData();
     const verificationRooms = new Map();
-    
+
     // Filter only verification rooms
     for (const [roomName, roomData] of allRooms) {
       if (roomName.startsWith('verification_room_')) {
         verificationRooms.set(roomName, roomData);
       }
     }
-    
+
     return {
       totalVerificationRooms: verificationRooms.size,
       verificationRooms: verificationRooms,
@@ -47,7 +47,7 @@ export class VerificationService {
   getActiveVerifications() {
     const allRooms = this.presenceService.getAllRoomsData();
     const activeVerifications = [];
-    
+
     for (const [roomName, roomData] of allRooms) {
       if (roomName.startsWith('verification_room_')) {
         const userId = roomName.replace('verification_room_', '');
@@ -58,7 +58,7 @@ export class VerificationService {
         });
       }
     }
-    
+
     return activeVerifications;
   }
 }

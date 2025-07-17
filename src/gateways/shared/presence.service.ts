@@ -184,6 +184,19 @@ export class PresenceService {
   }
 
   /**
+   * Remove all clients of a given clientType from a room
+   */
+  removeClientTypeFromRoom(roomName: string, clientType: string): void {
+    const roomData = this.rooms.get(roomName);
+    if (!roomData) return;
+    // Find all clients in the room with the specified clientType
+    const clientsToRemove = roomData.filter((data) => data.type === clientType);
+    for (const client of clientsToRemove) {
+      this.removeClientFromRoom(roomName, client.client);
+    }
+  }
+
+  /**
    * Get all clients for a user
    */
   getUserSockets(userId: string): Set<string> | undefined {
@@ -376,7 +389,9 @@ export class PresenceService {
       if (updates.userId && updates.userId !== existingData.userId) {
         // Remove from old user mapping
         if (existingData.userId && existingData.userId !== 'anonymous') {
-          const oldUserSockets = this.userSocketMap.get(String(existingData.userId));
+          const oldUserSockets = this.userSocketMap.get(
+            String(existingData.userId),
+          );
           if (oldUserSockets) {
             oldUserSockets.delete(clientId);
             if (oldUserSockets.size === 0) {

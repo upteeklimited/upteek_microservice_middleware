@@ -6,7 +6,6 @@ export class VerificationPayload {
 }
 
 export class message {
-  userId: string;
   data?: any;
 }
 

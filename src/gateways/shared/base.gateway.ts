@@ -24,9 +24,14 @@ export abstract class BaseGateway
    */
   handleConnection(client: Socket): void {
     // Extract userId and clientType if provided
-    let userId = this.extractUserId(client) || 'anonymous';
+    let userId = this.extractUserId(client) || client.id;
     const clientType = this.extractClientType(client);
     const namespace = this.extractNamespace(client);
+
+    if (clientType === undefined) {
+      this.handleDisconnect(client);
+      return;
+    }
 
     // Attempt to validate token if present
     const token = this.extractBearerToken(client);
