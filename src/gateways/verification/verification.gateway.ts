@@ -88,7 +88,7 @@ export class VerificationGateway extends BaseGateway {
                 client: clientId,
                 namespace,
               });
-              this.emitToClient(clientId, 'message', 'Joined room');
+              this.emitToClient(clientId, 'joined', 'true');
               return {
                 success: true,
                 message: `Joined room ${roomName}`,
