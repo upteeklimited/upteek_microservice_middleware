@@ -19,6 +19,11 @@ interface JoinChatPayload {
   client_b: string;
 }
 
+interface chatPayload {
+  message?: string;
+  media?: string[];
+}
+
 @WebSocketGateway({
   namespace: 'messages',
   cors: {
@@ -65,7 +70,7 @@ export class MessagesGateway extends BaseGateway {
   @SubscribeMessage('message')
   async handleMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: any,
+    @MessageBody() payload: chatPayload,
   ): Promise<string> {
     try {
       // Check if client is authenticated
@@ -114,27 +119,31 @@ export class MessagesGateway extends BaseGateway {
         otherUserId = userIdA;
       }
       const res = this.presenceService.getConnectedClientByUserId(otherUserId);
-      this.emitToClient(res[0].clientId, 'peer_joined', {
-        message: `Your chat partner has sent a message in room: ${roomName}`,
-        roomName,
-        peerUserId: currentUserId,
-        timestamp: new Date().toISOString(),
-      });
+      console.log(res);
+      if (res.length > 0) {
+        this.emitToClient(res[0].clientId, 'peer_joined', {
+          message: `Your chat partner has sent a message in room: ${roomName}`,
+          roomName,
+          peerUserId: currentUserId,
+          timestamp: new Date().toISOString(),
+        });
+      }
 
       // Process message using the messages service
       const token = client.handshake.headers['authorization'];
 
       const result = await this.messagesService.processMessage(
-        payload,
+        payload.message,
         otherUserId,
         clientData,
+        payload.media,
         token,
       );
 
       // Send message to the room (P2P chat - only 2 users)
       this.emitToRoom(clientData.roomName, 'message', {
         sender: clientData.userId,
-        message: payload,
+        message: result,
         timestamp: new Date().toISOString(),
       });
 

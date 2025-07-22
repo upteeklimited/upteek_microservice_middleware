@@ -224,6 +224,7 @@ export class VerificationGateway extends BaseGateway {
             sender: client.id,
             data: data.data,
           });
+          console.log(`Message ${message} sent`);
           return { success: true, message: 'Message sent' };
         } else {
           console.log('Not in any room');
