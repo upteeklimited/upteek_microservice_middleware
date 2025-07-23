@@ -119,7 +119,6 @@ export class MessagesGateway extends BaseGateway {
         otherUserId = userIdA;
       }
       const res = this.presenceService.getConnectedClientByUserId(otherUserId);
-      console.log(res);
       if (res.length > 0) {
         this.emitToClient(res[0].clientId, 'peer_joined', {
           message: `Your chat partner has sent a message in room: ${roomName}`,
@@ -139,6 +138,9 @@ export class MessagesGateway extends BaseGateway {
         payload.media,
         token,
       );
+
+      console.dir(payload);
+      console.dir(result);
 
       // Send message to the room (P2P chat - only 2 users)
       this.emitToRoom(clientData.roomName, 'message', {
