@@ -28,10 +28,12 @@ export abstract class BaseGateway
     const clientType = this.extractClientType(client);
     const namespace = this.extractNamespace(client);
 
-    if (clientType === undefined) {
-      this.handleDisconnect(client);
-      return;
-    }
+    console.log(clientType);
+
+    // if (clientType === undefined) {
+    //   this.handleDisconnect(client);
+    //   return;
+    // }
 
     // Attempt to validate token if present
     const token = this.extractBearerToken(client);

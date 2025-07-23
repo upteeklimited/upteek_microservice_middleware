@@ -28,6 +28,7 @@ interface chatPayload {
   namespace: 'messages',
   cors: {
     origin: '*',
+    credentials: true,
   },
 })
 @UseGuards(WebSocketAuthGuard)
@@ -119,6 +120,7 @@ export class MessagesGateway extends BaseGateway {
         otherUserId = userIdA;
       }
       const res = this.presenceService.getConnectedClientByUserId(otherUserId);
+      console.log(res);
       if (res.length > 0) {
         this.emitToClient(res[0].clientId, 'peer_joined', {
           message: `Your chat partner has sent a message in room: ${roomName}`,
@@ -139,13 +141,10 @@ export class MessagesGateway extends BaseGateway {
         token,
       );
 
-      console.dir(payload);
-      console.dir(result);
-
       // Send message to the room (P2P chat - only 2 users)
       this.emitToRoom(clientData.roomName, 'message', {
         sender: clientData.userId,
-        message: result,
+        message: payload,
         timestamp: new Date().toISOString(),
       });
 
@@ -165,6 +164,7 @@ export class MessagesGateway extends BaseGateway {
     @MessageBody() payload: JoinChatPayload,
   ) {
     try {
+      console.log('join chat payload: ' + JSON.stringify(payload));
       // Allow anonymous connection, but require authentication for protected actions
       if (!this.isAuthenticated(client)) {
         // Optionally, check for token and update userId if provided
