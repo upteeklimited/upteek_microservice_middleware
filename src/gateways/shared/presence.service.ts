@@ -425,6 +425,10 @@ export class PresenceService {
     }));
   }
 
+  getAllConnectedClientsByRoomData(roomName: string): RoomData[] | undefined {
+    return this.rooms.get(roomName);
+  }
+
   /**
    * Get all connected clients with their IDs (alias for getAllConnectedClients)
    */

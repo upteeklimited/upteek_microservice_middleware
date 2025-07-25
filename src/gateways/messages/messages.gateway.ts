@@ -133,6 +133,8 @@ export class MessagesGateway extends BaseGateway {
       // Process message using the messages service
       const token = client.handshake.headers['authorization'];
 
+      console.log(payload);
+
       const result = await this.messagesService.processMessage(
         payload.message,
         otherUserId,
@@ -144,7 +146,7 @@ export class MessagesGateway extends BaseGateway {
       // Send message to the room (P2P chat - only 2 users)
       this.emitToRoom(clientData.roomName, 'message', {
         sender: clientData.userId,
-        message: payload,
+        message: result,
         timestamp: new Date().toISOString(),
       });
 
@@ -170,8 +172,6 @@ export class MessagesGateway extends BaseGateway {
         // Optionally, check for token and update userId if provided
         const userId = this.extractUserId(client);
         const clientType = this.extractClientType(client);
-        console.log('checking: ' + userId);
-        console.log('checking: ' + clientType);
         if (userId) {
           this.updateClientAuth(client, userId, clientType);
         } else {
@@ -182,7 +182,7 @@ export class MessagesGateway extends BaseGateway {
         }
       }
 
-      console.log('validated auth');
+      // console.log('validated auth');
 
       // Validate required payload fields
       const { clientType, client_a, client_b } = payload;
@@ -197,7 +197,7 @@ export class MessagesGateway extends BaseGateway {
         };
       }
 
-      console.log('validated client fields');
+      // console.log('validated client fields');
 
       // Validate client type
       const validClientTypes = ['web', 'mobile'];
@@ -211,7 +211,7 @@ export class MessagesGateway extends BaseGateway {
         };
       }
 
-      console.log('validated type');
+      // console.log('validated type');
 
       // Create consistent room name using sorter method
       const roomName = this.createRoomName(client_a, client_b);
@@ -219,64 +219,14 @@ export class MessagesGateway extends BaseGateway {
       const currentUserId = this.extractUserId(client).toString();
 
       // Check if room already exists
-      const existingClients = this.presenceService.getRoomData(roomName);
-      const isFirstPerson = !existingClients || existingClients.length === 0;
+      const existingRoom = this.presenceService.getRoomData(roomName);
 
-      // P2P Chat Validation: Ensure only 2 users can be in a room
-      if (!isFirstPerson && existingClients.length >= 2) {
-        // Check if the current user is already in the room (multiple devices/tabs)
-        const isUserAlreadyInRoom = existingClients.some((roomClient) => {
-          const clientData = this.getClientData(roomClient.client);
-          return clientData && clientData.userId === currentUserId;
-        });
+      const roomParts = roomName.replace('chat_room_', '').split('_');
 
-        if (!isUserAlreadyInRoom) {
-          this.emitToClient(client.id, 'error', {
-            message: 'Room is full. Only 2 users allowed in P2P chat rooms.',
-          });
-          return {
-            success: false,
-            message: 'Room is full. Only 2 users allowed in P2P chat rooms.',
-          };
-        }
-      }
-
-      // Check if room has different users (P2P validation)
-      if (!isFirstPerson && existingClients.length > 0) {
-        const existingUserIds = new Set<string>();
-
-        // Get existing user IDs in the room
-        existingClients.forEach((roomClient) => {
-          const clientData = this.getClientData(roomClient.client);
-          if (clientData && clientData.userId !== 'anonymous') {
-            existingUserIds.add(clientData.userId);
-          }
-        });
-
-        // If there are already 2 different users and current user is not one of them
-        if (existingUserIds.size >= 2 && !existingUserIds.has(currentUserId)) {
-          this.emitToClient(client.id, 'error', {
-            message: 'Room is full. Only 2 users allowed in P2P chat rooms.',
-          });
-          return {
-            success: false,
-            message: 'Room is full. Only 2 users allowed in P2P chat rooms.',
-          };
-        }
-      }
-
-      // Join the chat room
-      client.join(roomName);
-
-      // Register room participation
-      this.presenceService.addClientToRoom(roomName, {
-        type: 'chat',
-        client: client.id,
-        namespace,
-      });
-
-      // Emit appropriate event based on whether this is first or second person
-      if (isFirstPerson) {
+      if (!existingRoom) {
+        this.joinRoom(client, roomName, namespace);
+        console.log('first person joined');
+        // Emit appropriate event based on whether this is first or second person
         this.emitToRoom(roomName, 'room_created', {
           roomName,
           client_a,
@@ -285,24 +235,66 @@ export class MessagesGateway extends BaseGateway {
           timestamp: new Date().toISOString(),
         });
       } else {
-        this.emitToRoom(roomName, 'user_joined', {
-          roomName,
-          userId: currentUserId,
-          clientType,
-          timestamp: new Date().toISOString(),
-        });
+        // now here before we join the second user to this room,
+        // we need to check if the user trying to join has permission to
+        // so first check existing clients in the room
+        // next check joining user's id
+        // then compare both ids to the room name, if it matches then the
+        // joining user can join
+
+        if (existingRoom.length >= 2) {
+          console.log('room is full');
+          const existingClients = this.presenceService.getRoomData(roomName);
+          console.log(existingClients);
+          console.log('current user id', currentUserId);
+          // first we check if the user has permission to join the room
+          // by checking the requesting user's id is based on the room parts
+          if (roomParts.includes(currentUserId)) {
+            // user's id is based on the part,
+            // now this means the user is trying to rejoin the room but did not leave
+            // initially
+            const res =
+              this.presenceService.getConnectedClientByUserId(currentUserId);
+            this.presenceService.removeClientFromRoom(
+              roomName,
+              res[0].clientId,
+            );
+            this.joinRoom(client, roomName, namespace);
+            console.log('rejoined room');
+            this.emitToRoom(roomName, 'user_joined', {
+              roomName,
+              userId: currentUserId,
+              clientType,
+              timestamp: new Date().toISOString(),
+            });
+          } else {
+            // we kick the user out immediately
+            this.emitToClient(client.id, 'error', {
+              message: 'Wrong channel',
+            });
+          }
+        } else {
+          // here we check since the room is not full, we check if the
+          // requesting user's id is based on the room parts
+          if (roomParts.includes(currentUserId)) {
+            // good to join the room
+            this.joinRoom(client, roomName, namespace);
+            console.log('second person joined');
+            this.emitToRoom(roomName, 'user_joined', {
+              roomName,
+              userId: currentUserId,
+              clientType,
+              timestamp: new Date().toISOString(),
+            });
+          } else {
+            this.emitToClient(client.id, 'error', {
+              message: '',
+            });
+          }
+        }
       }
 
       // broadcast the two ids for the receiver to get notified of the chat
-
-      return {
-        success: true,
-        message: isFirstPerson
-          ? `Created chat room: ${roomName}`
-          : `Joined chat room: ${roomName}`,
-        roomName,
-        isFirstPerson,
-      };
     } catch (error) {
       console.error('Error in handleJoinChat:', error);
       this.emitToClient(client.id, 'error', {
@@ -374,8 +366,6 @@ export class MessagesGateway extends BaseGateway {
       }
     }
 
-    console.log('room name: ' + payload);
-
     // Check if client is in a room
     if (!clientData.roomName) {
       this.emitToClient(client.id, 'error', {
@@ -390,5 +380,17 @@ export class MessagesGateway extends BaseGateway {
       message: payload,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  joinRoom(client: Socket, roomName: string, namespace: string) {
+    // new user in the room
+    client.join(roomName); // Join the chat room
+    // Register room participation
+    this.presenceService.addClientToRoom(roomName, {
+      type: 'chat',
+      client: client.id,
+      namespace,
+    });
+    console.log('client added to room');
   }
 }
