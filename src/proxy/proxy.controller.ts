@@ -160,8 +160,19 @@ export class ProxyController {
           // Decrypt all string fields in req.body
           Object.keys(req.body).forEach((key) => {
             try {
-              const { data, iv, tag } = JSON.parse(req.body[key]);
-              req.body[key] = decrypt({ data, iv, tag });
+              if (Array.isArray(req.body[key])) {
+                req.body[key] = req.body[key].map((item) => {
+                  try {
+                    const { data, iv, tag } = JSON.parse(item);
+                    return decrypt({ data, iv, tag });
+                  } catch {
+                    return item; // If not encrypted, leave as is
+                  }
+                });
+              } else {
+                const { data, iv, tag } = JSON.parse(req.body[key]);
+                req.body[key] = decrypt({ data, iv, tag });
+              }
             } catch {
               // If not encrypted, leave as is
             }
@@ -210,6 +221,8 @@ export class ProxyController {
             files: req.files,
             query: req.query,
           });
+
+          console.dir(req.body);
 
           const axiosConfig = {
             method: req.method as any,
