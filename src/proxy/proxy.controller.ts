@@ -177,10 +177,16 @@ export class ProxyController {
 
           // Build a new FormData instance
           const form = new FormData();
-          // Append fields
+          // Append fields, handling arrays properly
           if (req.body) {
             Object.entries(req.body).forEach(([key, value]) => {
-              form.append(key, value as any);
+              if (Array.isArray(value)) {
+                value.forEach((item) => {
+                  form.append(key, item);
+                });
+              } else {
+                form.append(key, value);
+              }
             });
           }
           // Append files
