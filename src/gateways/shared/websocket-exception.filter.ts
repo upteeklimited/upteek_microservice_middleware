@@ -30,7 +30,7 @@ export class WebSocketExceptionFilter implements ExceptionFilter {
     }
 
     // Emit error to the client
-    client.emit('error', {
+    ctx.getClient().emit('error', {
       message,
       status,
       timestamp: new Date().toISOString(),
