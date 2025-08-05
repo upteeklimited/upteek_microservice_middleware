@@ -1,4 +1,4 @@
-name: Upteek Main
+name: Upteek api Main
 
 on:
   push:
@@ -37,9 +37,9 @@ jobs:
     - name: Delete necessary files and folders
       run: |
         rm -rf node_modules
-        rm -rf /var/www/upteek/*
+        rm -rf /var/www/api/*
     - name: Copy files to upteek directory and build
       run: |
-        cp -r * /var/www/upteek && cd /var/www/upteek
-        npm install && npm run build
-        pm2 restart upteek
+        cp -r * /var/www/api && cd /var/www/api
+        yarn && yarn build
+        pm2 restart api
