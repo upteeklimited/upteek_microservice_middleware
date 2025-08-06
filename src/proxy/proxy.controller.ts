@@ -221,10 +221,10 @@ export class ProxyController {
             validateStatus: () => true,
           };
 
-          // const response = await axios(axiosConfig);
-          // const encryptedResponse = encrypt(JSON.stringify(response.data));
-          // res.status(response.status).json(encryptedResponse);
-          // cleanupFiles();
+          const response = await axios(axiosConfig);
+          const encryptedResponse = encrypt(JSON.stringify(response.data));
+          res.status(response.status).json(encryptedResponse);
+          cleanupFiles();
         } catch (error) {
           cleanupFiles();
           if (error.response) {
