@@ -16,12 +16,12 @@ async function bootstrap() {
     credentials: true, // If you need to allow cookies or authorization headers
   });
   app.use(helmet());
-  app.use(
-    rateLimit.default({
-      windowMs: 15 * 60 * 1000,
-      max: 100,
-    }),
-  );
+  // app.use(
+  //   rateLimit.default({
+  //     windowMs: 15 * 60 * 1000,
+  //     max: 100,
+  //   }),
+  // );
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
   );
