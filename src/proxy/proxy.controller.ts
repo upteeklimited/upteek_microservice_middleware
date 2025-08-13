@@ -90,6 +90,7 @@ export class ProxyController {
           });
 
           const response = await axios(axiosConfig);
+          console.log('Proxy Outgoing Request response:', response);
           const encryptedResponse = encrypt(JSON.stringify(response.data));
           return res.status(response.status).json(encryptedResponse);
         }
@@ -124,9 +125,11 @@ export class ProxyController {
         });
 
         const response = await axios(axiosConfig);
+        console.log('Other Proxy Outgoing Request response:', response);
         const encryptedResponse = encrypt(JSON.stringify(response.data));
         return res.status(response.status).json(encryptedResponse);
       } catch (error) {
+        console.log('Other Proxy Outgoing Request error:', error.response);
         if (error.response) {
           return res.status(error.response.status).send(error.response.data);
         } else {
@@ -222,6 +225,7 @@ export class ProxyController {
           };
 
           const response = await axios(axiosConfig);
+          console.log('Proxy Outgoing Multipart response:', response);
           const encryptedResponse = encrypt(JSON.stringify(response.data));
           res.status(response.status).json(encryptedResponse);
           cleanupFiles();
